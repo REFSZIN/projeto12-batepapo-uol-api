@@ -1,0 +1,28 @@
+{
+  "name": "projeto11-tweteroo",
+  "version": "1.0.0",
+  "description": "Projeto back-end construção da API Bate-papo UOL UOL!🙂",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": " nodemon src/app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "^5.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.1",
+    "express": "^4.18.1",
+    "jwt-simple": "^0.5.6"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.19"
+  },
+  "nodemonConfig": {
+    "ext": "js,coffee,json,env",
+    "watch": ".env"
+  }
+}

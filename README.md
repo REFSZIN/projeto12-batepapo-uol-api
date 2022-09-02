@@ -11,6 +11,7 @@ Projeto back-end será a construção da API Bate-papo UOL!🙂
 - [dayjs](https://www.npmjs.com/package/dayjs)
 - [mongodb](https://www.npmjs.com/package/mongodb)
 - [joi](https://www.npmjs.com/package/joi)
+- [stripHtml](https://www.npmjs.com/package/stripHtml)
 <!-- 
 // build: Changes that affect the build system or external dependencies (example scopes: gulp, broccoli, npm)
 // ci: Changes to our CI configuration files and scripts (example scopes: Travis, Circle, BrowserStack, SauceLabs)

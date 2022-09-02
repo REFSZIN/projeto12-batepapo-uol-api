@@ -1,10 +1,11 @@
 import express, {json} from "express";
+import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
 import chalk from "chalk";
 import dotenv from "dotenv";
 import dayjs from "dayjs";
 import joi from "joi";
-import { MongoClient, ObjectId } from "mongodb";
+
 import { stripHtml } from "string-strip-html";
 //import jwt from "jwt-simple";
 
@@ -16,7 +17,7 @@ dotenv.config();
 
 const PORT = process.env.PORTA;
 const NOME = process.env.NOMEE;
-let db = null;
+let db ;
 
 const mongoClient = new MongoClient(process.env.MONGO_URI);
 const promise = mongoClient.connect();
@@ -30,37 +31,41 @@ promise.catch(err =>
 
 app.post('/participants', async (req, res) => {
   const{ name } = req.body;
-
-  const Schema = joi.object().keys({ name: joi.string().min(1).required(),});
-
-  const result = joi.validate(name, Schema); 
+  const Schema = joi.object().keys({ name: joi.string().min(1).required()});
+  const result = Schema.validate(req.body); 
   const { error } = result; 
   const valid = error == null; 
 
-  if(!valid){
-    res.status(422).send.chalk.red.bold(
+  console.log(name);
+
+  if(true){
+    res.status(422).send(
       'Todos os campos são obrigatórios!'
       ); 
     return
   };
-
-  if(db.collection("participantes").filter((e) => e.name === name)){
-    res.status(409).send.chalk.red.bold(
-      'Nome já está sendo utilizado'
-      ); 
-    return
-  }
     try {
+
+      const filter = await db.collection("participantes").find().toArray();
+      const filtered = filter.filter((e) => e.name === name);
+      console.log(filtered);
+      if(filtered){
+        res.status(409).send(
+          'Nome já está sendo utilizado'
+          ); 
+        return
+      }
       const newUser = await db.collection("participantes").insertOne(
         {name: name, lastStatus: Date.now()}
-      );
+      ).toArray();
       const signMsg = await db.collection("mensagems").insertOne(
         {from: name, to: 'Todos', text: `${name} entra na sala...`, type: 'status', time: dayjs(Date.now()).format("HH:mm:ss")}
       );
-      res.status(201).send.chalk.green.bold(`Criado com sucesso: ${newUser.name} as ${signMsg.time}`);
+      console.log(newUser);
+      res.status(201).send(`Criado com sucesso: ${newUser.name} as ${signMsg.time}`);
       return
     }
-    catch (error) {
+    catch (err) {
       console.error(err);
       res.sendStatus(500);
       return
@@ -69,7 +74,7 @@ app.post('/participants', async (req, res) => {
 );
 app.get('/participants', async (req, res) => {
     await db.collection("participantes").find().toArray().then(users => {
-    res.status(200).send.chalk.green.bold(
+    res.status(200).send(
       users
       ); 
     return
@@ -221,15 +226,14 @@ app.delete('/messages/:ID_DA_MENSAGEM', async (req, res) => {
   const { User } = req.headers;
   const { ID_DA_MENSAGEM } = req.params;
 
-  const messageScheme = joi.object(
+  const Scheme = joi.object(
       {
           to: joi.string().trim().required(),
           text: joi.string().trim().required(),
           type: joi.string().trim().required()
       }
   )
-
-  const { error } = messageScheme.validate(req.body);
+  const { error } = Scheme.validate(req.body);
 
   if(error){
       res.status(422).send(error.details.map(detail => detail.message));
@@ -263,7 +267,7 @@ app.delete('/messages/:ID_DA_MENSAGEM', async (req, res) => {
 
 setInterval(async () =>{
     try {
-      const removeUsers = await db.collection("participants").find({lastStatus: {$lte: Date.now() - 10000}}).toArray();
+      const removeUsers = await db.collection("participants").find({lastStatus:{$lte: Date.now() - 10000}}).toArray();
       if(removeUsers.length !== 0){
           const removedAlert = removeUsers.map(e => {
             return{ 

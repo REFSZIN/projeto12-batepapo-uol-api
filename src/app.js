@@ -38,7 +38,7 @@ app.post('/participants', async (req, res) => {
     return
   }
   if(valid.errorMessage){
-    const erros = validations.error.details.map((err) => err.message);
+    const erros = validation.error.details.map((err) => err.message);
     res.status(422).send(
       `Todos os campos são obrigatórios! : ${erros}`
       ); 
@@ -154,7 +154,7 @@ app.post('/status', async (req, res) => {
 
     return res.status(200).send(`Status Alterado com Sucesso: ${user}`);
 
-    } catch (error) {
+    } catch (err) {
       console.error(err);
       res.sendStatus(500);
       return

@@ -31,38 +31,35 @@ promise.catch(err =>
 
 app.post('/participants', async (req, res) => {
   const{ name } = req.body;
-  const Schema = joi.object().keys({ name: joi.string().min(1).required()});
-  const result = Schema.validate(req.body); 
-  const { error } = result; 
-  const valid = error == null; 
+  const Schema = joi.object({ name: joi.string().min(3).required()});
+  const valid = Schema.validate(name, {abortEarly: false});
 
-  console.log(name);
-
-  if(true){
+  if(valid.errorMessage){
+    const erros = validations.error.details.map((err) => err.message);
     res.status(422).send(
-      'Todos os campos são obrigatórios!'
+      `Todos os campos são obrigatórios! : ${erros}`
       ); 
     return
   };
     try {
 
-      const filter = await db.collection("participantes").find().toArray();
-      const filtered = filter.filter((e) => e.name === name);
-      console.log(filtered);
-      if(filtered){
-        res.status(409).send(
-          'Nome já está sendo utilizado'
+      const newUser = await db.collection('participantes').findOne({name: name})
+
+      if(newUser) {
+        return res.status(409).send(
+          `Apelido existente : ${newUser}`
           ); 
-        return
       }
-      const newUser = await db.collection("participantes").insertOne(
-        {name: name, lastStatus: Date.now()}
-      ).toArray();
-      const signMsg = await db.collection("mensagems").insertOne(
+
+      const lastStatus = Date.now();
+
+      await db.collection("participantes").insertOne(
+        {name, lastStatus}
+      );
+      await db.collection("mensagems").insertOne(
         {from: name, to: 'Todos', text: `${name} entra na sala...`, type: 'status', time: dayjs(Date.now()).format("HH:mm:ss")}
       );
-      console.log(newUser);
-      res.status(201).send(`Criado com sucesso: ${newUser.name} as ${signMsg.time}`);
+      res.status(201).send(`Criado com sucesso: ${name} as ${lastStatus}`);
       return
     }
     catch (err) {
@@ -73,27 +70,32 @@ app.post('/participants', async (req, res) => {
   }
 );
 app.get('/participants', async (req, res) => {
+  try {
     await db.collection("participantes").find().toArray().then(users => {
     res.status(200).send(
       users
       ); 
     return
 	});
+  } catch (err) {
+    console.error(err);
+    res.sendStatus(500);
+  }
 });
 app.post('/messages', async (req, res) => {
   const{ to, text, type} = req.body;
-  const { User } = req.headers;
-  const Mensagem = { User, to ,text, type };
+  const { user } = req.headers;
+  const Mensagem = { to, text, type, user };
 
-  if(!User){
-    res.status(404).send.chalk.red.bold(
+  if(!user){
+    res.status(404).send(
       'Usuario Inexistente ou Usuario não Preenchido!'
       ); 
     return
   };
 
   if(!to || !text || !type ){
-    res.status(400).send.chalk.red.bold(
+    res.status(400).send(
       'Todos os campos são obrigatórios!'
       ); 
     return
@@ -103,63 +105,65 @@ app.post('/messages', async (req, res) => {
     to: joi.string().min(1).trim().required(),
     text: joi.string().min(1).trim().required(),
     type: joi.string().trim().required() && type === 'message' || type === 'private_message',
-    from: await db.collection("participantes").filter((e) => e.name === User),
+    from: joi.string().min(1).trim().required(),
   });
 
-  const result = joi.validate(Mensagem, Schema); 
-  const { error } = result; 
-  const valid = error == null; 
+  const result = Schema.validate(Mensagem, {abortEarly: false});
 
-  if(!valid){
-    res.status(422).send.chalk.red.bold(
+  if(result.errorMessage){
+    res.status(422).send(
       'Todos os campos são obrigatórios!'
       ); 
     return
   };
 
   try {
-    const newMsg = await db.collection("mensagems").insertOne(
-      {from: User , to, text, type, time: dayjs.format("HH:mm:ss")}
+    const time = dayjs().format("HH:MM:SS");
+    await db.collection("mensagems").insertOne(
+      {from: user , to, text, type, time}
     );
-    res.status(201).send.chalk.green.bold(`Mensagem enviada sucesso ${newMsg.from}`);
-    return
+
+    return res.status(201).send(`Mensagem enviada sucesso ${user}`);
+    
   }
   catch (error) {
-    console.error(err);
+    console.error(error);
     res.sendStatus(500);
     return
   };
 });
 app.post('/status', async (req, res) => {
-  const { User } = req.headers;
-  if(!User && await db.collection("participantes").filter((e) => e.name === !User)){
-    res.status(404).send.chalk.red.bold(
-      'Usuario Inexistente!'
-      ); 
-    return
-  };
-  
-  if( await db.collection("participantes").filter((e) => e.name === User)){
-    try {
-      const newUser = await db.collection("participantes").insertOne(
-        {name: User, lastStatus: Date.now()}
-      );
-      res.status(200).send.chalk.green.bold(`Status Alterado com Sucesso: ${newUser.name}`);
-      return
-    }
-    catch (error) {
+  const { user } = req.headers;
+
+  try {
+    const live = await db.collection("participantes").findOne({name: user});
+    const lastStatus = Date.now();
+
+    if(!live){
+      return res.status(404).send(
+        'Usuario Inexistente!'
+        );
+    };
+
+    await db.collection("participantes").updateOne({name: user}, { $set: {user, lastStatus} });
+
+    return res.status(200).send(`Status Alterado com Sucesso: ${user}`);
+
+    } catch (error) {
       console.error(err);
       res.sendStatus(500);
       return
-    };}
+    };
 });
+
 app.get('/messages', async (req, res) => {
   const { limit } = req.query;
-  const { User } = req.headers;
+  const { user } = req.headers;
+
   try{
-    const dbTo = await db.collection("messages").find({to: User}).toArray();
-    const dbFrom = await db.collection("messages").find({from: User}).toArray();
-    const dbPublica = await db.collection("messages").find({to: "Todos"}).toArray();
+    const dbTo = await db.collection("mensagems").find({to: user}).toArray();
+    const dbFrom = await db.collection("mensagems").find({from: user}).toArray();
+    const dbPublica = await db.collection("mensagems").find({to: "Todos"}).toArray();
     const Messages = [...new Set([...dbTo ,...dbFrom ,...dbPublica])];
 
     if(isNaN(limit)){
@@ -167,23 +171,24 @@ app.get('/messages', async (req, res) => {
     }
     res.status(201).send(Messages.splice(-limit));
     }catch(e){
-    res.status(422).send.chalk.red.bold({errorMessage: `Error: ${e.message}`});
+    res.status(422).send({errorMessage: `Error: ${e.message}`});
   }
 });
+
 app.put('/messages/:ID_DA_MENSAGEM', async (req, res) => {
   const { User } = req.headers;
   const { ID_DA_MENSAGEM } = req.params;
   const{ to, text, type} = req.body;
 
   if(!User){
-    res.status(404).send.chalk.red.bold(
+    res.status(404).send(
       'Usuario Inexistente ou Usuario não Preenchido!'
       ); 
     return
   };
 
   if(!to || !text || !type ){
-    res.status(400).send.chalk.red.bold(
+    res.status(400).send(
       'Todos os campos são obrigatórios!'
       ); 
     return
@@ -201,7 +206,7 @@ app.put('/messages/:ID_DA_MENSAGEM', async (req, res) => {
   const valid = error == null; 
 
   if(!valid){
-    res.status(422).send.chalk.red.bold(
+    res.status(422).send(
       'Todos os campos são obrigatórios!'
       ); 
     return
@@ -222,6 +227,7 @@ app.put('/messages/:ID_DA_MENSAGEM', async (req, res) => {
     res.status(500).send({errorMessage: `Não foi possível deletar a mensagem! Causa: ${e}`});
 }
 });
+
 app.delete('/messages/:ID_DA_MENSAGEM', async (req, res) => {
   const { User } = req.headers;
   const { ID_DA_MENSAGEM } = req.params;
@@ -267,22 +273,26 @@ app.delete('/messages/:ID_DA_MENSAGEM', async (req, res) => {
 
 setInterval(async () =>{
     try {
-      const removeUsers = await db.collection("participants").find({lastStatus:{$lte: Date.now() - 10000}}).toArray();
+      const status =  Date.now() - 10000;
+      const allUsers = await db.collection('participantes').find().toArray();
+      const removeUsers = allUsers.filter(user => user.lastStatus <= status);
+
       if(removeUsers.length !== 0){
-          const removedAlert = removeUsers.map(e => {
+          const removedAlert = removeUsers.map(async e => {
+            await db.collection("participantes").deleteOne({name: e.name});
             return{ 
               from: `System`,
               to: 'Todos', 
               text: `${e.name} sai da sala...`, 
-              type: 'status', 
-              time: dayjs(Date.now()).format('HH:mm:ss'),
+              type: 'status',
+              time: dayjs().format('HH:MM:SS')
             }
         })
-        await db.collection("messages").insertMany(removedAlert);
-        await db.collection("participants").deleteMany({lastStatus: {$lte: Date.now() - 10000}});
+
+        await db.collection("mensagems").insertMany(removedAlert);
       }
     }catch(e){
-      console.log("Erro ao remover inativos: ",e);
+      console.log("Erro ao remover inativos: ", e);
     };
 },15000);
 

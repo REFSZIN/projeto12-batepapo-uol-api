@@ -5,12 +5,9 @@ import chalk from "chalk";
 import dotenv from "dotenv";
 import dayjs from "dayjs";
 import joi from "joi";
-
 import { stripHtml } from "string-strip-html";
-//import jwt from "jwt-simple";
 
 const app = express();
-
 app.use(cors());
 app.use(json());
 dotenv.config();
@@ -30,10 +27,16 @@ promise.catch(err =>
 );
 
 app.post('/participants', async (req, res) => {
-  const{ name } = req.body;
+  const { name } = req.body;
   const Schema = joi.object({ name: joi.string().min(3).required()});
   const valid = Schema.validate(name, {abortEarly: false});
 
+  if(name === null){
+    res.status(422).send(
+      `Name user is Null`
+      ); 
+    return
+  }
   if(valid.errorMessage){
     const erros = validations.error.details.map((err) => err.message);
     res.status(422).send(
@@ -41,32 +44,34 @@ app.post('/participants', async (req, res) => {
       ); 
     return
   };
-    try {
 
-      const newUser = await db.collection('participantes').findOne({name: name})
+  try {
 
-      if(newUser) {
-        return res.status(409).send(
-          `Apelido existente : ${newUser}`
-          ); 
-      }
+    const newUser = await db.collection('participantes').findOne({name: name})
 
-      const lastStatus = Date.now();
-
-      await db.collection("participantes").insertOne(
-        {name, lastStatus}
-      );
-      await db.collection("mensagems").insertOne(
-        {from: name, to: 'Todos', text: `${name} entra na sala...`, type: 'status', time: dayjs(Date.now()).format("HH:mm:ss")}
-      );
-      res.status(201).send(`Criado com sucesso: ${name} as ${lastStatus}`);
-      return
-    }
-    catch (err) {
-      console.error(err);
-      res.sendStatus(500);
-      return
+    if(newUser) {
+      return res.status(409).send(
+        `Apelido existente : ${newUser}`)
     };
+
+    const lastStatus = Date.now();
+
+    await db.collection("participantes").insertOne(
+      {name, lastStatus}
+    );
+
+    await db.collection("mensagems").insertOne(
+      {from: name, to: 'Todos', text: `entra na sala...`, type: 'status', time: dayjs(Date.now()).format("HH:mm:ss")}
+    );
+
+    res.status(201).send(`Criado com sucesso: ${name} as ${lastStatus}`);
+    return
+  }
+  catch (err) {
+    console.error(err);
+    res.sendStatus(500);
+    return
+  };
   }
 );
 app.get('/participants', async (req, res) => {
@@ -74,10 +79,10 @@ app.get('/participants', async (req, res) => {
     await db.collection("participantes").find().toArray().then(users => {
     res.status(200).send(
       users
-      ); 
-    return
-	});
-  } catch (err) {
+    ); 
+    return}
+    );
+    } catch (err) {
     console.error(err);
     res.sendStatus(500);
   }
@@ -118,7 +123,7 @@ app.post('/messages', async (req, res) => {
   };
 
   try {
-    const time = dayjs().format("HH:MM:SS");
+    const time = dayjs(Date.now()).format("HH:MM:ss");
     await db.collection("mensagems").insertOne(
       {from: user , to, text, type, time}
     );
@@ -142,7 +147,7 @@ app.post('/status', async (req, res) => {
     if(!live){
       return res.status(404).send(
         'Usuario Inexistente!'
-        );
+        )
     };
 
     await db.collection("participantes").updateOne({name: user}, { $set: {user, lastStatus} });
@@ -155,145 +160,118 @@ app.post('/status', async (req, res) => {
       return
     };
 });
+app.put('/messages/:ID_DA_MENSAGEM', async (req, res) => {
+  const { user } = req.headers;
+  const { ID_DA_MENSAGEM } = req.params;
 
+  const Scheme = joi.object(
+    {
+      to: joi.string().trim().required(),
+      text: joi.string().trim().required(),
+      type: joi.string().trim().required()
+    }
+  )
+  const { error } = Scheme.validate(req.body);
+
+  if(error){
+    res.status(422).send(error.details.map(detail => detail.message));
+  }
+
+  try {
+    const message = await db.collection('mensagems').findOne({_id: new ObjectId(ID_DA_MENSAGEM)});
+    
+    if(!message){
+      return res.sendStatus(404);
+    }
+    if(message.from !== user){
+      return res.sendStatus(401);
+    }
+
+    await db.collection('mensagems').updateOne({_id: new ObjectId(ID_DA_MENSAGEM)},
+    {$set: 
+      {
+        to: req.body.to,
+        from: user,
+        text: stripHtml(req.body.text).result,
+        type: req.body.type,
+        time: dayjs(Date.now()).format('HH:MM:ss'),
+      }
+    });
+    res.status(201).send("Mensagem atualizada com sucesso!")
+    } catch (e){
+    res.status(422).send(`Não foi possível alterar a mensagem: ${e}`);
+}
+});
 app.get('/messages', async (req, res) => {
   const { limit } = req.query;
   const { user } = req.headers;
 
   try{
-    const dbTo = await db.collection("mensagems").find({to: user}).toArray();
-    const dbFrom = await db.collection("mensagems").find({from: user}).toArray();
-    const dbPublica = await db.collection("mensagems").find({to: "Todos"}).toArray();
-    const Messages = [...new Set([...dbTo ,...dbFrom ,...dbPublica])];
+  let menssagens;
 
-    if(isNaN(limit)){
-        return res.status(201).send(Messages);
+    if(limit){
+      menssagens = await db.collection("mensagems").find({}, { limit: limit }).toArray();
+    } else {
+      menssagens = await db.collection("mensagems").find({}).toArray();
     }
-    res.status(201).send(Messages.splice(-limit));
+    const filteredMsgs = menssagens.filter(item => item.to === user || item.to === "Todos" || item.from === user || item.from === "System");
+
+    return res.status(201).send(filteredMsgs);
+
     }catch(e){
     res.status(422).send({errorMessage: `Error: ${e.message}`});
   }
 });
-
-app.put('/messages/:ID_DA_MENSAGEM', async (req, res) => {
-  const { User } = req.headers;
+app.delete('/messages/:ID_DA_MENSAGEM', async (req, res) => {
+  const { user } = req.headers;
   const { ID_DA_MENSAGEM } = req.params;
-  const{ to, text, type} = req.body;
 
-  if(!User){
+  if(!user){
     res.status(404).send(
       'Usuario Inexistente ou Usuario não Preenchido!'
       ); 
     return
   };
 
-  if(!to || !text || !type ){
-    res.status(400).send(
-      'Todos os campos são obrigatórios!'
-      ); 
-    return
-  };
-
-  const Schema = joi.object().keys({ 
-    to: joi.string().min(1).trim().required(),
-    text: joi.string().min(1).trim().required(),
-    type: joi.string().trim().required() && type === 'message' || type === 'private_message',
-    from: await db.collection("participantes").filter((e) => e.name === User),
-  });
-
-  const result = joi.validate(Mensagem, Schema); 
-  const { error } = result; 
-  const valid = error == null; 
-
-  if(!valid){
-    res.status(422).send(
-      'Todos os campos são obrigatórios!'
-      ); 
-    return
-  };
   try {
-    const message = await db.collection('messages').findOne({_id: new ObjectId(ID_DA_MENSAGEM)});
+    const message = await db.collection('mensagems').findOne({_id: ObjectId(`${ID_DA_MENSAGEM}`)});
     
     if(!message){
       return res.sendStatus(404);
     }
-    if(message.from !== User){
+    if(message.from !== user){
       return res.sendStatus(401);
     }
-
-    await db.collection('messages').deleteOne({_id: new ObjectId(ID_DA_MENSAGEM)});
+    await db.collection('mensagems').deleteOne({_id: ObjectId(`${ID_DA_MENSAGEM}`)});
     res.sendStatus(200);
-} catch(e){
-    res.status(500).send({errorMessage: `Não foi possível deletar a mensagem! Causa: ${e}`});
-}
-});
-
-app.delete('/messages/:ID_DA_MENSAGEM', async (req, res) => {
-  const { User } = req.headers;
-  const { ID_DA_MENSAGEM } = req.params;
-
-  const Scheme = joi.object(
-      {
-          to: joi.string().trim().required(),
-          text: joi.string().trim().required(),
-          type: joi.string().trim().required()
-      }
-  )
-  const { error } = Scheme.validate(req.body);
-
-  if(error){
-      res.status(422).send(error.details.map(detail => detail.message));
-  }
-
-  try {
-    const message = await db.collection('messages').findOne({_id: new ObjectId(ID_DA_MENSAGEM)});
-    
-    if(!message){
-        return res.sendStatus(404);
+    } catch(e) {
+      res.status(500).send({errorMessage: `Não foi possível deletar a mensagem! Causa: ${e}`});
     }
-    if(message.from !== User){
-      return res.sendStatus(401);
-    }
-
-    await db.collection('messages').updateOne({_id: new ObjectId(ID_DA_MENSAGEM)},
-    {$set: 
-        {
-            to: req.body.to,
-            from: User,
-            text: stripHtml(req.body.text).result,
-            type: req.body.type,
-            time: dayjs(Date.now()).format('HH:mm:ss'),
-        }
-    });
-    res.status(201).send("Mensagem atualizada com sucesso!")
-    } catch (e){
-    res.status(422).send({errorMessage: `Não foi possível alterar a mensagem: ${e}`});
-}
 });
 
 setInterval(async () =>{
-    try {
-      const status =  Date.now() - 10000;
-      const allUsers = await db.collection('participantes').find().toArray();
-      const removeUsers = allUsers.filter(user => user.lastStatus <= status);
+  try {
+    const status =  Date.now() - 10000;
+    const allUsers = await db.collection('participantes').find().toArray();
+    const removeUsers = allUsers.filter(user => {
+      return user.lastStatus === status || user.lastStatus < status
+    });
 
-      if(removeUsers.length !== 0){
-          const removedAlert = removeUsers.map(async e => {
-            await db.collection("participantes").deleteOne({name: e.name});
-            return{ 
-              from: `System`,
-              to: 'Todos', 
-              text: `${e.name} sai da sala...`, 
-              type: 'status',
-              time: dayjs().format('HH:MM:SS')
-            }
-        })
-
-        await db.collection("mensagems").insertMany(removedAlert);
-      }
-    }catch(e){
-      console.log("Erro ao remover inativos: ", e);
-    };
+    if(removeUsers.length !== 0){
+      removeUsers.map(async e => {
+        const msg = { 
+          from: "System",
+          to: "Todos",
+          text: `${e.name} sai da sala...`, 
+          type: 'status',
+          time: dayjs().format('HH:MM:ss')
+        };
+        await db.collection("mensagems").insertOne(msg);
+        await db.collection("participantes").deleteOne({name: e.name});
+    })}
+  }catch(e){
+    console.log("Erro ao remover inativos: ", e);
+  };
 },15000);
 
 app.listen(PORT, () => { console.log(chalk.green.bold(`Rodando ${NOME} Lisu na Porta: ${PORT}`))});

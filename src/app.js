@@ -31,9 +31,9 @@ app.post('/participants', async (req, res) => {
   const Schema = joi.object({ name: joi.string().min(3).required()});
   const valid = Schema.validate(name, {abortEarly: false});
 
-  if(name === null){
+  if(name === null || ""){
     res.status(422).send(
-      `Name user is Null`
+      `Name user is invalid`
       ); 
     return
   }
@@ -128,7 +128,7 @@ app.post('/messages', async (req, res) => {
       {from: user , to, text, type, time}
     );
 
-    return res.status(201).send(`Mensagem enviada sucesso ${user}`);
+    return res.status(200).send(`Mensagem enviada sucesso ${user}`);
     
   }
   catch (error) {
@@ -260,7 +260,7 @@ setInterval(async () =>{
     if(removeUsers.length !== 0){
       removeUsers.map(async e => {
         const msg = { 
-          from: "System",
+          from: `${e.name}`,
           to: "Todos",
           text: `${e.name} sai da sala...`, 
           type: 'status',
